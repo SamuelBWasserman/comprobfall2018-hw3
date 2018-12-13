@@ -1,10 +1,13 @@
+#!/usr/bin/env python
 import rospy
 import matplotlib.pyplot as plt
-from trajectory_parser import *
+import trajectory_parser
 
 if __name__ == '__main__':
-    start_position, heading_distance_list, ground_truth_list, noisy_heading_list, noisy_distance_list, scan_list = parse_trajectory(
-        "trajectories_1.txt")
+    print "Running"
+    start_position, heading_distance_list, ground_truth_list, noisy_heading_list, noisy_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_1.txt")
+    print start_position
+    print ground_truth_list
 
 
 def graph(data, output):

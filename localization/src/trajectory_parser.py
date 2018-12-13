@@ -19,7 +19,7 @@ def parse_trajectory(input_file):
     # Extract the start position of the robot
     with open(input_file, 'r') as input:
         lines = input.readlines()
-        start_position = [int(lines[1][2:]), int(lines[2][2:])]
+        start_position = [int(lines[1].split()[1]), int(lines[2].split()[1])]
 
         # Used to keep track of the top of a reading chunk
         reading_num = 4
