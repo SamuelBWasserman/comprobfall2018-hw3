@@ -1,6 +1,4 @@
-import rospy
 from gazebo_msgs.msg import ModelState
-from turtlebot_ctrl.srv import TurtleBotControl
 from turtlebot_ctrl.msg import TurtleBotScan
 from std_msgs.msg import Float32
 from std_msgs.msg import Float64
@@ -9,8 +7,7 @@ from geometry_msgs.msg import *
 start_position = [0, 0]
 heading_distance_list = list()
 ground_truth_list = list()
-noisy_heading_list = list()
-noisy_distance_list = list()
+noisy_heading_distance_list = list()
 scan_list = list()
 CHUNK_LEN = 30
 
@@ -66,16 +63,15 @@ def parse_trajectory(input_file):
             ground_truth_list.append(model_state)
 
             # Append noisy headings and distances to their list
-            noisy_heading_list.append(Float32(lines[reading_num + 27].split()[1]))
-            noisy_distance_list.append(Float32(lines[reading_num + 29].split()[1]))
+            noisy_heading_distance_list.append((Float32(lines[reading_num + 27].split()[1]), Float32(lines[reading_num + 29].split()[1])))
 
             # Append scan data to list
-            scan_data = lines[reading_num + 29][7:].split()
+            scan_data = lines[reading_num + 29][11:].split()
             scan_data_list = TurtleBotScan().ranges
             for data in scan_data:
-                scan_data_list.append(Float32(data))
+                scan_data_list.append(Float32(data.replace(",", "").replace("]", "")))
             scan_list.append(scan_data_list)
 
             reading_num = reading_num + 30
 
-        return start_position, heading_distance_list, ground_truth_list, noisy_heading_list, noisy_distance_list, scan_list
+        return start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list
