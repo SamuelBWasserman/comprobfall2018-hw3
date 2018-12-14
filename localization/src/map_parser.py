@@ -1,3 +1,5 @@
+import ast
+
 def parse_map(map_file):
     with open(map_file, 'r') as map:
         lines = map.readlines()
@@ -13,5 +15,10 @@ def parse_map(map_file):
 
         for line in lines:
             num_obstacles = num_obstacles + 1
-            obstacles.append(line.split())
+            obstacle = []
+            # print line.split(',')
+            for item in line.split():
+                obstacle.append(ast.literal_eval(item))
+            obstacles.append(obstacle)
+
         return corners, obstacles, num_obstacles

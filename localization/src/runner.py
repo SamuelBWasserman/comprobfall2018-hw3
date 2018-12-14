@@ -3,7 +3,9 @@
 import matplotlib.pyplot as plt
 import trajectory_parser
 import map_parser
-
+from particle_filter import *
+import numpy as np
+from numpy.random import uniform
 
 """Graph the ground truth data against the estimated positions of the turtlebot"""
 def graph(data, output):
@@ -29,19 +31,46 @@ def graph(data, output):
 
     return
 
+def create_uniform_particles(x_range, y_range, heading_range, n):
+    particles = np.empty((n, 3))
+    particles[:, 0] = uniform(x_range[0], x_range[1], size=n)
+    particles[:, 1] = uniform(y_range[0], y_range[1], size=n)
+    particles[:, 2] = uniform(heading_range[0], heading_range[1], size=n)
+    particles[:,2] %= 2 * np.pi
+    return particles
+
 
 if __name__ == '__main__':
     print "Running"
+    # Extract relevant information from map and trajectory files
     start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_1.txt")
     corners, obstacles, num_obstacles = map_parser.parse_map("map_1.txt")
     estimated_positions = list()
-    # Run algorithm and get position estimates
+    # Create array of obstacles
+    obs = []
+    for obstacle in obstacles:
+        corner = [obstacle[0][0], obstacle[0][1]]
+        obs.append(corner)
+
+    # Convert the Float32's in the trajectory lists to float to make the algorithm more readable
+    for j in range(len(heading_distance_list)):
+        heading_distance_list[j] = [float(heading_distance_list[j][0].data), float(heading_distance_list[j][1].data)]
+
+    for k in range(len(scan_list)):
+        for scan in scan_list[k]:
+            scan = float(scan.data)
+
+    # Loop over every control
     state = start_position
     for i in range(len(heading_distance_list)):
         control = heading_distance_list[i]
         observation_scan = scan_list[i]
-        # Call particle filter to get an estimated current pose
-        estimated_pose = (i, i)
+
+        # Run particle filter to get estimated pose
+        best_particle = run_filter(100, heading_distance_list[i], scan_list[i], obs, (state[0], state[1], np.pi/4))
+        # Pick particle with highest weight
+        # best_particle = max(particles, key=lambda particle:particle.w)
+        estimated_pose = (best_particle[0], best_particle[1])
         estimated_positions.append(estimated_pose)  # Append estimated pose (x, y)
         state = estimated_pose
 

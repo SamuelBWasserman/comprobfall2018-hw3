@@ -1,5 +1,10 @@
 import numpy as np
 import math
+import scipy.stats
+from numpy.random import uniform
+from numpy.random import randn
+from numpy.random import random
+from numpy.linalg import norm
 
 NUM_PARTICLES = 100 # number of particles to sample
 OBS_SIZE = 2 # dimentionality of the obstacles(2D in this case)
@@ -20,7 +25,7 @@ class Particle:
         self.obs = np.zeros((NUM_OBS, OBS_SIZE)) # (# of obs, 2)
         self.obsP = np.zeros((NUM_OBS*OBS_SIZE, OBS_SIZE)) # (# of obs*2, 2)
 
-def run_filter(particles, u, z):
+def run_filter(N, u, z, obs, state=None):
     """ Runs the particle filtering algorithm
     Args:
         particles: A list of particles of size NUM_PARTICLES
@@ -29,17 +34,44 @@ def run_filter(particles, u, z):
     Retuns:
         particles: A list of resamples particles
     """
-    
+    if state is not None:
+        particles = create_gaussian_particles(mean=state, std=(5, 5, np.pi/4), N=N)
+    else:
+        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*np.pi, np.pi), N)
+    weights = np.ones(N) / N
+    obs = np.array(obs)
+    pose = np.array([0., 0.])
     # perform the prediction step
-    particles = dynamics_prediction(particles, u)
+    dynamics_prediction(particles, u)
 
     # perform observation update
-    particles = observation_update(particles, z)
+    observation_update(weights, z, R=0.01)
 
     # perform resampling update
-    particles = resample(particles)
+    if neff(weights) < N/2:
+        indexes = which_resample(weights)
+        resample_from_index(particles, weights, indexes)
+    # particles = resample(particles)
+    mean, var = estimate(particles, weights)
 
+    return mean
+
+def create_uniform_particles(x_range, y_range, heading_range, n):
+    particles = np.empty((n, 3))
+    particles[:, 0] = uniform(x_range[0], x_range[1], size=n)
+    particles[:, 1] = uniform(y_range[0], y_range[1], size=n)
+    particles[:, 2] = uniform(heading_range[0], heading_range[1], size=n)
+    particles[:,2] %= 2 * np.pi
     return particles
+
+def create_gaussian_particles(mean, std, N):
+    particles = np.empty((N,3))
+    particles[:, 0] = mean[0] + (randn(N) * std[0])
+    particles[:, 1] = mean[1] + (randn(N) * std[1])
+    particles[:, 2] = mean[2] + (randn(N) * std[2])
+    particles[:, 2] %= 2 * np.pi
+    return particles
+
 
 def dynamics_prediction(particles, u):
     """ Sample a new for each particle using motion model and odometry
@@ -47,18 +79,16 @@ def dynamics_prediction(particles, u):
         particles: A list of particles of size NUM_PARTICLES
         u: A numpy vector of size 2 corresponding to (phi, dist)
     """
+    N = len(particles)
+    # Move heading
+    particles[:, 2] += u[0] + (randn(N) * 0.1)
+    particles[:, 2] %= 2 * np.pi
 
-    for i in range(NUM_PARTICLES):
-        x_prev = np.zeros((STATE_SIZE, 1))
-        x_prev[0,0] = particles[i].x
-        x_prev[1,0] = particles[i].y
-        x_prev[2,0] = particles[i].theta
-        x_pred = motion_model(x_prev, u)
-        particles[i].x = x_pred[0,0]
-        particles[i].y = x_pred[1,0]
-        particles[i].theta = x_pred[2,0]
+    # Move a distance
+    dist = (u[1] * 1) + (randn(N) * 0.1)
+    particles[:, 0] += np.cos(particles[:, 2]) * dist
+    particles[:, 1] += np.sin(particles[:, 2]) * dist
 
-    return particles
 
 def motion_model(xp, u):
     """ Computes a predicted state given previous state and current control
@@ -81,21 +111,52 @@ def motion_model(xp, u):
 
     return xp
 
-def observation_update(particles, z):
+def observation_update(weights, z, R):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
         z: A list of observations from -30 to 30 degrees at increments of 1.125 degrees. Length is 54.
     """
+    for i, obstacle_dist in enumerate(z):
+        if obstacle_dist.data == "nan":
+            distance = float(999)
+            weights *= scipy.stats.norm(distance, R).pdf(distance)
+        else:
+            distance = float(obstacle_dist.data)
+            weights *= scipy.stats.norm(distance, R).pdf(float(z[i].data))
 
-    # sanity check
-    if len(z) != 54:
-        raise Exception("Error: Observation must be length 54!" )
 
-    # loop through all observation values
-    for iz in range(len(z)):
-        print("test")
-    return particles
+    weights += 1.e-300
+    weights /= sum(weights)
 
-def resample(particles):
-    return particles
+def which_resample(weights):
+    N = len(weights)
+
+    positions = (np.arange(N) + random()) / N
+
+    indexes = np.zeros(N, 'i')
+    cum_sum = np.cumsum(weights)
+    i, j = 0, 0
+    while i < N:
+        if positions[i] < cum_sum[j]:
+            indexes[i] = j
+            i += 1
+        else:
+            j += 1
+    return indexes
+
+
+def neff(weights):
+    return 1. / np.sum(np.square(weights))
+
+def resample_from_index(particles, weights, indexes):
+    particles[:] = particles[indexes]
+    weights[:] = weights[indexes]
+    weights.fill(1.0 / len(weights))
+
+def estimate(particles, weights):
+    """Return the mean and variance of weighted particles"""
+    pos = particles[:, 0:2]
+    mean = np.average(pos, weights=weights, axis=0)
+    var = np.average((pos-mean)**2, weights=weights, axis=0)
+    return mean, var
