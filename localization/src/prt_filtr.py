@@ -12,7 +12,7 @@ class Particle:
         N_LM: Coordinates of the landmarks
     """
 
-    def __init__(self, NUM_OBS):
+    def __init__(self, x, y, theta, NUM_OBS):
         self.w = 1.0 / NUM_PARTICLES
         self.x = 0.0
         self.y = 0.0
@@ -21,11 +21,29 @@ class Particle:
         self.obs = np.zeros((NUM_OBS, OBS_SIZE))  # (# of obs, 2)
         self.obsP = np.zeros((NUM_OBS * OBS_SIZE, OBS_SIZE))  # (# of obs*2, 2)
 
+def create_uniform_particles(x_range, y_range, theta_range, NUM_OBS):
+    """ Creates a uniform distribution of particles for initialization purposes
+    Args:
+        x_range: Range in the x-coordinate of the world. List of [min, max]
+        y_range: Range in the y-coordinate of the world. List of [min, max]
+        theta_range: Range in the theta values for the robot. List of [min, max]. Should be -pi to pi.
+    """
+    # create a list of initial random guesses for particle location
+    particles_x = np.random.uniform(x_range[0], x_range[1], size=NUM_PARTICLES)
+    particles_y = np.random.uniform(y_range[0], y_range[1], size=NUM_PARTICLES)
+    particles_theta = np.random.uniform(theta_range[0], theta_range[1], size=NUM_PARTICLES)
+
+    # create a list of particles
+    particles = list()
+    for n in range(NUM_PARTICLES):
+        particles.append(Particle(particles_x, particles_y, particles_theta, NUM_OBS))
+
+    return particles
 
 def run_filter(particles, u, z):
     """ Runs the particle filtering algorithm
     Args:
-        particles: A list of particles of size NUM_PARTICLES
+        particles: An initial or prev list of particles of size NUM_PARTICLES
         u: The control at a time t
         z: The observation at time t
     Retuns:
@@ -51,15 +69,20 @@ def dynamics_prediction(particles, u):
         u: A numpy vector of size 2 corresponding to (phi, dist)
     """
 
-    for i in range(NUM_PARTICLES):
+    for n in range(NUM_PARTICLES):
+        # create a numpy vector to represent one particle
         x_prev = np.zeros((STATE_SIZE, 1))
-        x_prev[0, 0] = particles[i].x
-        x_prev[1, 0] = particles[i].y
-        x_prev[2, 0] = particles[i].theta
+        x_prev[0, 0] = particles[n].x
+        x_prev[1, 0] = particles[n].y
+        x_prev[2, 0] = particles[n].theta
+
+        # run the prediction on one particle
         x_pred = motion_model(x_prev, u)
-        particles[i].x = x_pred[0, 0]
-        particles[i].y = x_pred[1, 0]
-        particles[i].theta = x_pred[2, 0]
+
+        # store these values back into the list
+        particles[n].x = x_pred[0, 0]
+        particles[n].y = x_pred[1, 0]
+        particles[n].theta = x_pred[2, 0]
 
     return particles
 
@@ -98,10 +121,32 @@ def observation_update(particles, z):
         raise Exception("Error: Observation must be length 54!")
 
     # loop through all observation values
-    for iz in range(len(z)):
+    pz = list()
+    for iz in range(NUM_PARTICLES):
         print("test")
+
+        # compute each particle's estimated z_t
+        pz.append(compute_obs())
+
+        # take the distance between the two vectors
+
+        # build a distribution where z_t is the mean and the std is the std is the scan noise parameter
+
+        # find the probability of each particle's estimate z_t from the distribution build above
+
+
+
+
     return particles
 
+def compute_obs():
+    """ Computes the observation for a particle.
+    Args:
+        particle: A `Particle` to get the observation for
+    Returns:
+        z_hat: An estimate of the particle's z_t
+    """
+    return
 
 def resample(particles):
     return particles
