@@ -1,9 +1,13 @@
 import numpy as np
+import scipy
 import math
+import random
+import copy
 
 NUM_PARTICLES = 100  # number of particles to sample
 OBS_SIZE = 2  # dimentionality of the obstacles(2D in this case)
 STATE_SIZE = 3
+SAMPLE_THRESHOLD = NUM_PARTICLES / 1.5
 
 
 class Particle:
@@ -12,19 +16,21 @@ class Particle:
         N_LM: Coordinates of the landmarks
     """
 
-    def __init__(self, x, y, theta, NUM_OBS):
+    def __init__(self, x, y, theta):
         self.w = 1.0 / NUM_PARTICLES
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
 
 
-def create_uniform_particles(x_range, y_range, theta_range, NUM_OBS):
+def create_uniform_particles(x_range, y_range, theta_range):
     """ Creates a uniform distribution of particles for initialization purposes
     Args:
         x_range: Range in the x-coordinate of the world. List of [min, max]
         y_range: Range in the y-coordinate of the world. List of [min, max]
         theta_range: Range in the theta values for the robot. List of [min, max]. Should be -pi to pi.
+    Returns:
+        particles: A list of particles
     """
     # create a list of initial random guesses for particle location
     particles_x = np.random.uniform(x_range[0], x_range[1], size=NUM_PARTICLES)
@@ -34,17 +40,40 @@ def create_uniform_particles(x_range, y_range, theta_range, NUM_OBS):
     # create a list of particles
     particles = list()
     for n in range(NUM_PARTICLES):
-        particles.append(Particle(particles_x, particles_y, particles_theta, NUM_OBS))
+        particles.append(Particle(particles_x[n], particles_y[n], particles_theta[n]))
+
+    return particles
+
+def create_initial_particles(x_coord, y_coord, theta_range):
+    """ Initialize particle states at initial coordinates and randomly sample heading of robot
+    Args:
+        x_coord: Range in the x-coordinate of the world. List of [min, max]
+        y_coord: Range in the y-coordinate of the world. List of [min, max]
+        theta_range: Range in the theta values for the robot. List of [min, max]. Should be -pi to pi.
+    Returns:
+        particles: A list of particles
+    """
+    # create a list of initial random guesses for particle location
+    particles_x = np.full((NUM_PARTICLES,), fill_value=x_coord)
+    particles_y = np.full((NUM_PARTICLES,), fill_value=y_coord)
+    particles_theta = np.random.uniform(theta_range[0], theta_range[1], size=NUM_PARTICLES)
+
+    # create a list of particles
+    particles = list()
+    for n in range(NUM_PARTICLES):
+        particles.append(Particle(particles_x[n], particles_y[n], particles_theta[n]))
 
     return particles
 
 
-def run_filter(particles, u, z, obs):
+def run_filter(particles, u, z, obs, scan_noise):
     """ Runs the particle filtering algorithm
     Args:
         particles: An initial or prev list of particles of size NUM_PARTICLES
         u: The control at a time t
         z: The observation at time t
+        obs: A list of obstacles which is a list of vertex coordinates of the obstacle
+        scan_nosie: The scan noise parameter
     Retuns:
         particles: A list of resamples particles
     """
@@ -52,10 +81,13 @@ def run_filter(particles, u, z, obs):
     particles = dynamics_prediction(particles, u)
 
     # perform observation update
-    particles = observation_update(particles, z, obs)
+    particles = observation_update(particles, z, obs, scan_noise)
 
     # perform resampling update
     particles = resample(particles)
+
+    # TODO: Maybe add an estimate function that computes an estimate of the particle's pose
+
 
     return particles
 
@@ -107,38 +139,64 @@ def motion_model(xp, u):
     return xp
 
 
-def observation_update(particles, z, obs):
+def observation_update(particles, z, obs, noise, def_nan_val=100):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
         z: A list of observations from -30 to 30 degrees at increments of 1.125 degrees. Length is 54.
+        obs: A list of obstacles which is represented as a list of coordinates of its vertices
+        noise: The scan noise parameter
+        def_nan_val: A default value to set the 'nan' values to
     """
 
     # sanity check
     if len(z) != 54:
         raise Exception("Error: Observation must be length 54!")
 
+    # normalization factor
+    eta = 0
+
+    # deal with 'nan' values in the actual z
+    for i in range(len(z)):
+        if z[i] == 'nan':
+            z[i] = def_nan_val
+
+    # create the noise covariance matrix
+    Q = np.zeros((len(z), len(z)))
+    np.fill_diagonal(Q, noise)
+
     # loop through all observation values
-    pz = list()
     for iz in range(NUM_PARTICLES):
-        print("test")
-
         # compute each particle's estimated z_t
-        pz.append(compute_obs(particles[iz], obs))
+        est_obs = compute_obs(particles[iz], obs, noise)
 
-        # take the distance between the two vectors
+        # remove 'nan'
+        for i in range(len(est_obs)):
+            if est_obs[i] == 'nan':
+                est_obs[i] = def_nan_val
 
         # build a distribution where z_t is the mean and the std is the std is the scan noise parameter
+        # then calulcate probability of the particle's z_t on the distribution
+        weight = scipy.stats.multivariate_normal.pdf(est_obs, mean=z, cov=Q)
 
-        # find the probability of each particle's estimate z_t from the distribution build above
+        eta += weight
 
+        # set new particle weights
+        particles[iz].w = weight
+
+    # normalize all particle weights
+    for n in range(NUM_PARTICLES):
+        particles[n].w = particles[n].w / eta
+        
     return particles
 
 
-def compute_obs(particle, obs):
+def compute_obs(particle, obs, scan_noise):
     """ Computes the observation for a particle.
     Args:
         particle: A `Particle` to get the observation for
+        obs: A list of obstacles represented as a list of coordinates
+        scan_noise: The scan noise parameter
     Returns:
         z_hat: An estimate of the particle's z_t
     """
@@ -173,7 +231,9 @@ def compute_obs(particle, obs):
                     # If the point on the scan is equal to the point on the side with some error,
                     # add distance from original point in scan to point on side to distance list
                     if abs(point[0] - side_point[0]) < 0.25 and abs(point[1] - side_point[1]) < 0.25:
-                        particle_scan_list[i] = math.hypot(side_point[0] - scan_line[0][0], side_point[1] - scan_line[0][1])
+                        particle_scan_list[i] = math.hypot(side_point[0] - scan_line[0][0], side_point[1] - scan_line[0][1]) + np.random.normal(0, scan_noise)
+                        break
+                if particle_scan_list[i] is not 'nan':
                     break
         if particle_scan_list[i] == 0:
             particle_scan_list[i] = 'nan'
@@ -209,4 +269,41 @@ def find_line(pnt1, pnt2):
 
 
 def resample(particles):
-    return particles
+    """ Generates a new list of particles by resampling based on particles with high probability
+    Args:
+        particles: A list of particles
+    Returns:
+        new_particles: A new list of particles
+    """
+    # store all particle weights in a list
+    weights = list()
+    for n in range(NUM_PARTICLES):
+        weights.append(particles[n].w)
+    weights = np.array(weights)
+
+    # calculate effective sample size
+    neff = 0
+    for w in weights:
+        neff += math.pow(weights[w], 2)
+    neff = 1.0 / neff
+
+    # resample only if below some sample threshold
+    if neff < SAMPLE_THRESHOLD:
+        # perform multinomial resampling
+        cumsum = np.cumsum(weights)
+        cumsum[-1] = 1. # avoid roundoff error
+        # indices correspond to the index of weights with high probability
+        indices = np.searchsorted(cumsum, np.random.uniform(size=NUM_PARTICLES))
+
+        # use indices to create new particle set
+        new_particles = copy.deepcopy(particles)
+        for i in indices:
+            new_particles[i].x = particles[i].x
+            new_particles[i].y = particles[i].y
+            new_particles[i].theta = particles[i].theta
+            # set the new weights of the particle
+            new_particles[i].w = particles[i].w
+
+            # new_particles[i].w = 1.0 / NUM_PARTICLES # TODO: Dunno if we have to change this
+
+    return new_particles
