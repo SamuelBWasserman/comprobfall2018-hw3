@@ -3,9 +3,9 @@
 import matplotlib.pyplot as plt
 import trajectory_parser
 import map_parser
-from particle_filter import *
 import numpy as np
 from numpy.random import uniform
+from prt_filtr import *
 
 """Graph the ground truth data against the estimated positions of the turtlebot"""
 def graph(data, output):
@@ -46,15 +46,16 @@ if __name__ == '__main__':
     start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_1.txt")
     corners, obstacles, num_obstacles = map_parser.parse_map("map_1.txt")
     estimated_positions = list()
+    print obstacles[0][0][0]
     # Create array of obstacles
     obs = []
     for obstacle in obstacles:
-        corner = [obstacle[0][0], obstacle[0][1]]
-        obs.append(corner)
+        for point in obstacle:
+            obs.append(point)
 
     # Convert the Float32's in the trajectory lists to float to make the algorithm more readable
-    for j in range(len(heading_distance_list)):
-        heading_distance_list[j] = [float(heading_distance_list[j][0].data), float(heading_distance_list[j][1].data)]
+    for j in range(len(noisy_heading_distance_list)):
+        noisy_heading_distance_list[j] = [float(noisy_heading_distance_list[j][0].data), float(noisy_heading_distance_list[j][1].data)]
 
     for k in range(len(scan_list)):
         for scan in scan_list[k]:
@@ -62,17 +63,14 @@ if __name__ == '__main__':
 
     # Loop over every control
     state = start_position
-    for i in range(len(heading_distance_list)):
+    for i in range(len(noisy_heading_distance_list)):
         control = heading_distance_list[i]
         observation_scan = scan_list[i]
 
         # Run particle filter to get estimated pose
-        best_particle = run_filter(100, heading_distance_list[i], scan_list[i], obs, (state[0], state[1], np.pi/4))
-        # Pick particle with highest weight
-        # best_particle = max(particles, key=lambda particle:particle.w)
-        estimated_pose = (best_particle[0], best_particle[1])
-        estimated_positions.append(estimated_pose)  # Append estimated pose (x, y)
-        state = estimated_pose
+        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*np.pi, np.pi), num_obstacles)
+
+        run_filter(particles, noisy_heading_distance_list, scan_list, obstacles)
 
     # Graph result against ground truth
     graph(ground_truth_list, estimated_positions)

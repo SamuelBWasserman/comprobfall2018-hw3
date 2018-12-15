@@ -17,9 +17,7 @@ class Particle:
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
-        # (x,y) positions of the obstacles.
-        self.obs = np.zeros((NUM_OBS, OBS_SIZE))  # (# of obs, 2)
-        self.obsP = np.zeros((NUM_OBS * OBS_SIZE, OBS_SIZE))  # (# of obs*2, 2)
+
 
 def create_uniform_particles(x_range, y_range, theta_range, NUM_OBS):
     """ Creates a uniform distribution of particles for initialization purposes
@@ -40,7 +38,8 @@ def create_uniform_particles(x_range, y_range, theta_range, NUM_OBS):
 
     return particles
 
-def run_filter(particles, u, z):
+
+def run_filter(particles, u, z, obs):
     """ Runs the particle filtering algorithm
     Args:
         particles: An initial or prev list of particles of size NUM_PARTICLES
@@ -49,12 +48,11 @@ def run_filter(particles, u, z):
     Retuns:
         particles: A list of resamples particles
     """
-
     # perform the prediction step
     particles = dynamics_prediction(particles, u)
 
     # perform observation update
-    particles = observation_update(particles, z)
+    particles = observation_update(particles, z, obs)
 
     # perform resampling update
     particles = resample(particles)
@@ -109,7 +107,7 @@ def motion_model(xp, u):
     return xp
 
 
-def observation_update(particles, z):
+def observation_update(particles, z, obs):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
@@ -126,7 +124,7 @@ def observation_update(particles, z):
         print("test")
 
         # compute each particle's estimated z_t
-        pz.append(compute_obs())
+        pz.append(compute_obs(particles[iz], obs))
 
         # take the distance between the two vectors
 
@@ -134,19 +132,81 @@ def observation_update(particles, z):
 
         # find the probability of each particle's estimate z_t from the distribution build above
 
-
-
-
     return particles
 
-def compute_obs():
+
+def compute_obs(particle, obs):
     """ Computes the observation for a particle.
     Args:
         particle: A `Particle` to get the observation for
     Returns:
         z_hat: An estimate of the particle's z_t
     """
-    return
+    particle_scan_list = list()
+    obstacle_sides = list()
+    for obstacle in obs:
+        obstacle_iter = iter(obstacle)
+        # Save first corner and skip to second corner upon entering the loop
+        prev_corner = obstacle[0]
+        next(obstacle_iter)
+        # Loop through corners and build lines for each side of the polygonal obstacle
+        for corner in obstacle_iter:
+            obstacle_sides.append(find_line(prev_corner, corner))
+
+    # Loop through the scan range for a given particle at it's pose
+    position = particle.theta - (math.radians(30))
+    for i in range(54):
+        # init spot in list
+        particle_scan_list[i] = 0
+
+        # Find line between the two points in the scan 10 distance units away
+        r = math.sqrt(1 + position**2)
+        scan_pnt1 = [particle.x, particle.y]
+        scan_pnt2 = [particle.x + 10/r, particle.y + (10 * position) / r]
+        scan_line = find_line(scan_pnt1, scan_pnt2)
+
+        # loop through each side in every obstacle
+        for side in obstacle_sides:
+            # Loop through each pair of points (scan line point -> obstacle side point)
+            for point in scan_line:
+                for side_point in side:
+                    # If the point on the scan is equal to the point on the side with some error,
+                    # add distance from original point in scan to point on side to distance list
+                    if abs(point[0] - side_point[0]) < 0.25 and abs(point[1] - side_point[1]) < 0.25:
+                        particle_scan_list[i] = math.hypot(side_point[0] - scan_line[0][0], side_point[1] - scan_line[0][1])
+                    break
+        if particle_scan_list[i] == 0:
+            particle_scan_list[i] = 'nan'
+        position = position + math.radians(1.125)
+
+    return particle_scan_list
+
+
+def find_line(pnt1, pnt2):
+    """
+    :param pnt1:
+    :param pnt2:
+    :return: list of points between two points
+    """
+    x_min = min(pnt1[0], pnt2[0])
+    if x_min == pnt1[0]:
+        current_point = [pnt1[0], pnt1[1]]
+    else:
+        current_point = [pnt2[0], pnt2[1]]
+    x_max = max(pnt1[0], pnt2[0])
+    y_min = min(pnt1[1], pnt2[1])
+    y_max = max(pnt1[1], pnt2[1])
+
+    x_slope = (x_max - x_min) / 20
+    y_slope = (y_max - y_min) / 20
+    line = list()
+    # Loop from point to point adding values to the coordinate list
+    while current_point[0] < x_max:
+        line.append(current_point)
+        current_point[0] += x_slope
+        current_point[1] += y_slope
+    return line
+
 
 def resample(particles):
     return particles

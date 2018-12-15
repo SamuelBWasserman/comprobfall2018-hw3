@@ -45,14 +45,14 @@ def run_filter(N, u, z, obs, state=None):
     dynamics_prediction(particles, u)
 
     # perform observation update
-    observation_update(weights, z, R=0.01)
-
+    weights = observation_update(particles, weights, z, obs, R=0.01)
     # perform resampling update
     if neff(weights) < N/2:
         indexes = which_resample(weights)
         resample_from_index(particles, weights, indexes)
     # particles = resample(particles)
     mean, var = estimate(particles, weights)
+
 
     return mean
 
@@ -81,11 +81,11 @@ def dynamics_prediction(particles, u):
     """
     N = len(particles)
     # Move heading
-    particles[:, 2] += u[0] + (randn(N) * 0.1)
+    particles[:, 2] += u[0] + (randn(N))
     particles[:, 2] %= 2 * np.pi
 
     # Move a distance
-    dist = (u[1] * 1) + (randn(N) * 0.1)
+    dist = (u[1] * 1) + (randn(N))
     particles[:, 0] += np.cos(particles[:, 2]) * dist
     particles[:, 1] += np.sin(particles[:, 2]) * dist
 
@@ -111,23 +111,22 @@ def motion_model(xp, u):
 
     return xp
 
-def observation_update(weights, z, R):
+
+def observation_update(particles, weights, z, obs, R):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
         z: A list of observations from -30 to 30 degrees at increments of 1.125 degrees. Length is 54.
     """
-    for i, obstacle_dist in enumerate(z):
-        if obstacle_dist.data == "nan":
-            distance = float(999)
-            weights *= scipy.stats.norm(distance, R).pdf(distance)
-        else:
-            distance = float(obstacle_dist.data)
-            weights *= scipy.stats.norm(distance, R).pdf(float(z[i].data))
+    for j in range(len(z)):
+        if z[j].data == "nan":
+            weights *= scipy.stats.norm(20, R).pdf(20)
+            continue
+        weights *= scipy.stats.norm(float(z[j].data), R).pdf(float(z[j].data))
+        weights += 1.e-300
+        weights /= sum(weights)
+    return weights
 
-
-    weights += 1.e-300
-    weights /= sum(weights)
 
 def which_resample(weights):
     N = len(weights)
