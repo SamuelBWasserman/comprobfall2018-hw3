@@ -6,7 +6,10 @@ def parse_map(map_file):
         obstacles = []
         num_obstacles = 0
         # assign corners
-        corners = lines[0].split()
+        corner_strings = lines[0].split()
+        corners = []
+        for item in corner_strings:
+            corners.append(ast.literal_eval(item))
 
         lines = iter(lines)
         # Skip first two lines

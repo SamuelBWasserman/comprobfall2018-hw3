@@ -5,10 +5,10 @@ import math
 import random
 import copy
 
-NUM_PARTICLES = 100  # number of particles to sample
+NUM_PARTICLES = 500  # number of particles to sample
 OBS_SIZE = 2  # dimentionality of the obstacles(2D in this case)
 STATE_SIZE = 3
-SAMPLE_THRESHOLD = NUM_PARTICLES / 1.5
+SAMPLE_THRESHOLD = NUM_PARTICLES / 2.0
 
 
 class Particle:
@@ -58,19 +58,23 @@ def create_initial_particles(x_coord, y_coord, theta_range):
         particles: A list of particles
     """
     # create a list of initial random guesses for particle location
-    particles_x = np.full((NUM_PARTICLES,), fill_value=x_coord)
-    particles_y = np.full((NUM_PARTICLES,), fill_value=y_coord)
+    particles_x = np.full((NUM_PARTICLES,), fill_value=x_coord*np.random.uniform(), dtype=np.float64)
+    particles_y = np.full((NUM_PARTICLES,), fill_value=y_coord*np.random.uniform(), dtype=np.float64)
     particles_theta = np.random.uniform(theta_range[0], theta_range[1], size=NUM_PARTICLES)
 
     # create a list of particles
     particles = list()
     for n in range(NUM_PARTICLES):
-        particles.append(Particle(particles_x[n], particles_y[n], particles_theta[n]))
+        particle = Particle(particles_x[n], particles_y[n], particles_theta[n])
+        particle.x = particles_x[n]
+        particle.y = particles_y[n]
+        particle.theta = particles_theta[n]
+        particles.append(particle)
 
     return particles
 
 
-def run_filter(particles, u, z, obs, scan_noise):
+def run_filter(particles, u, z, obs, scan_noise, world_corners):
     """ Runs the particle filtering algorithm
     Args:
         particles: An initial or prev list of particles of size NUM_PARTICLES
@@ -85,7 +89,7 @@ def run_filter(particles, u, z, obs, scan_noise):
     particles = dynamics_prediction(particles, u)
 
     # perform observation update
-    particles = observation_update(particles, z, obs, scan_noise)
+    particles = observation_update(particles, z, obs, scan_noise, world_corners)
 
     # perform resampling update
     particles = resample(particles)
@@ -143,7 +147,7 @@ def motion_model(xp, u):
     return xp
 
 
-def observation_update(particles, z, obs, noise, def_nan_val=10.0):
+def observation_update(particles, z, obs, noise, corners, def_nan_val=10.0):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
@@ -172,19 +176,17 @@ def observation_update(particles, z, obs, noise, def_nan_val=10.0):
     # loop through all observation values
     for iz in range(NUM_PARTICLES):
         # compute each particle's estimated z_t
-        est_obs = compute_obs(particles[iz], obs, noise)
-        print est_obs
-        # remove 'nan'
-        for i in range(len(est_obs)):
-            if est_obs[i] == 'nan':
-                est_obs[i] = def_nan_val
+        est_obs = compute_new_obs(particles[iz], obs, noise, corners)
 
         est_obs = np.array(est_obs)
 
         # build a distribution where z_t is the mean and the std is the std is the scan noise parameter
-        # then calulcate probability of the particle's z_t on the distribution
-        weight = scipy.stats.multivariate_normal.pdf(est_obs, mean=z, cov=Q)
-
+        # then calculate probability of the particle's z_t on the distribution
+        #weight = scipy.stats.multivariate_normal.pdf(est_obs, mean=z, cov=Q)
+        weight = scipy.stats.norm.pdf(est_obs, loc=z, scale=54*[noise])
+        #print(sum(weight))
+        weight = np.average(weight)
+        #print("WIEGHT",weight)
 
         eta += weight
 
@@ -194,20 +196,11 @@ def observation_update(particles, z, obs, noise, def_nan_val=10.0):
     # normalize all particle weights
     for n in range(NUM_PARTICLES):
         particles[n].w = particles[n].w / eta
-
-    # sanity check for normalization
-    w = 0
-    for n in range(NUM_PARTICLES):
-        w += particles[n].w
-
-    if w != 1.0:
-        raise Exception("Weight w does not sum to one! The sum of the weights is:", w)
         
     return particles
 
-
-def compute_obs(particle, obs, scan_noise):
-    """ Computes the observation for a particle.
+def compute_new_obs(particle, obs, scan_noise, corners):
+    """ Computes the observation for a particle. A remake of the above
     Args:
         particle: A `Particle` to get the observation for
         obs: A list of obstacles represented as a list of coordinates
@@ -215,97 +208,87 @@ def compute_obs(particle, obs, scan_noise):
     Returns:
         z_hat: An estimate of the particle's z_t
     """
-    particle_scan_list = list()
+    # initialize the particle list to all zeros
+    particle_scan_list = np.zeros(shape=(54,), dtype=np.float64)
+
+    # create obstacle edge list which is a list of edges
+    obs_edge_list = list() # a list of the edges which is a list of 2 coordinates for every obs
+    for o in obs:
+        for v in range(len(o)):
+            if v == len(o)-1:
+                break
+            obs_edge_list.append([list(o[v]), list(o[v+1])])
+
+    # set current angle and get distance estimates
+    curr_pos = particle.theta - math.radians(30)
+    scan_start = [particle.x, particle.y]
     for i in range(54):
-        particle_scan_list.append(0)
-    obstacle_sides = list()
-    for obstacle in obs:
-        obstacle_iter = iter(obstacle)
-        # Save first corner and skip to second corner upon entering the loop
-        prev_corner = obstacle[0]
-        next(obstacle_iter)
-        # Loop through corners and build lines for each side of the polygonal obstacle
-        for corner in obstacle_iter:
-            obstacle_sides.append(find_line(prev_corner, corner))
-            prev_corner = corner
-    # Loop through the scan range for a given particle at it's pose
-    position = particle.theta - (math.radians(30))
-    for i in range(54):
-        # Find line between the two points in the scan 10 distance units away
-        r = math.sqrt(1 + position**2)
-        scan_pnt1 = [particle.x, particle.y]
-        scan_pnt2 = [particle.x + 10/r, particle.y + (10 * position) / r]
-        scan_line = find_line(scan_pnt1, scan_pnt2)
-        min_side_dist = 999
-        for scan_point in scan_line:
-            for side in obstacle_sides:
-                for side_point in side:
-                    # if a point on the scan line intersects a point on an obstacle side
-                    if distance(scan_point, side_point) < 0.3:
-                        # Distance from particle to side
-                        dist = distance(scan_pnt1, side_point)
-                        if dist < min_side_dist and dist < 10:
-                            min_side_dist = dist
-        if min_side_dist > 10:
-            particle_scan_list[i] = 'nan'
+        # Get the endpoints of the scan line
+        scan_endpt = [particle.x + 10.0*math.cos(curr_pos), particle.y + 10.0*math.sin(curr_pos)]
+
+        # set min scan distance
+        min_scan_dist = 10.0
+        for e in obs_edge_list:
+            # check to see if scan line intersects this edge
+            inter_coord = does_intersect([scan_start, scan_endpt], e, corners)
+
+
+            if type(inter_coord) != bool:
+                dist = distance(scan_start, inter_coord) #+ np.random.normal(0, math.pow(scan_noise, 2))
+
+                # set new min_scan_dist
+                if dist < min_scan_dist and dist > 0.45:
+                    min_scan_dist = dist
+
+
+        if min_scan_dist == 10.0:
+            particle_scan_list[i] = 10.0
         else:
-            particle_scan_list[i] = min_side_dist
-        position = position + math.radians(1.125)
+            particle_scan_list[i] = min_scan_dist
+
+        # get the next angle
+        curr_pos += math.radians(1.125)
 
     return particle_scan_list
 
+def does_intersect(line1, line2, bounds):
+    """ Computes the coordinates of intersection if the two lines interect or False otherwise.
+    Args:
+        line1: A list of list which corresponds to points on the line
+        line2: A list of list which corresponds to points on the line
+        bounds: A list of list which corresponds to
+    Returns:
+        inter: Coordinate of intersection or False
+    """
+    # convert to numpy arrays
+    line1 = np.array(line1, dtype=np.float64)
+    line2 = np.array(line2, dtype=np.float64)
+
+    try:
+        t, s = np.linalg.solve(np.array([line1[1] - line1[0], line2[0] - line2[1]]).T, line2[0] - line1[0])
+        inter = (1 - t) * line1[0] + t * line1[1]
+
+        # check to see if value is in the bounds of the world
+        # Get bounds of world
+        min_x = bounds[2][0]
+        max_x = bounds[0][0]
+        min_y = bounds[2][1]
+        max_y = bounds[0][1]
+        if inter[0] < min_x or inter[0] > max_x:
+            inter = False
+            return inter
+        if inter[1] < min_y or inter[1] > max_y:
+            inter = False
+            return inter
+
+    except np.linalg.linalg.LinAlgError:
+        inter = False
+
+    return inter
+
 
 def distance(pt1, pt2):
-    return math.sqrt((pt1[0] - pt2[0])**2 + (pt1[1] - pt2[1])**2)
-
-
-def find_scan_line(pt, theta):
-    (rise, run) = float.as_integer_ratio(math.tan(theta))
-    slope = float(rise) / float(run)
-    (x_slope, y_slope) = float.as_integer_ratio(slope)
-    x_slope = x_slope / float(10)
-    y_slope = y_slope / float(10)
-
-    if slope < 0:
-        x = pt[0] - 10 * math.sqrt((1 / (1 + slope**2)))
-        y = pt[0] - slope * 10 * math.sqrt(1 / (1 + slope**2))
-    else:
-        x = pt[0] + 10 * math.sqrt((1 / (1 + slope ** 2)))
-        y = pt[0] + slope * 10 * math.sqrt(1 / (1 + slope ** 2))
-    return find_line(pt, [x, y])
-
-def y_at_x_in_line(point, slope, x):
-    """
-    Uses point slope formula of line to return the y value at a given x value
-    :param point:
-    :param slope:
-    :param x:
-    :return:
-    """
-    y = slope*(x - point[0]) + point[0]
-    return y
-
-
-def find_line(pnt1, pnt2):
-    """
-    :param pnt1:
-    :param pnt2:
-    :return: list of points between two points
-    """
-    current_point = [pnt1[0], pnt1[1]]
-    x_slope = float((pnt2[0] - pnt1[0]) / float(10))
-    y_slope = float((pnt2[1] - pnt1[1]) / float(10))
-    line = list()
-    # Loop from point to point adding values to the coordinate list
-    while abs(pnt2[0] - current_point[0]) > 0.01 or abs(pnt2[1] - current_point[1]) > 0.01:
-        new_pnt = [current_point[0], current_point[1]]
-        line.append(new_pnt)
-        current_point[0] += x_slope
-        current_point[1] += y_slope
-
-    # append last pnt
-    line.append(current_point)
-    return line
+    return np.linalg.norm(pt1-pt2)
 
 
 def resample(particles):
@@ -329,6 +312,7 @@ def resample(particles):
 
     # resample only if below some sample threshold
     if neff < SAMPLE_THRESHOLD:
+        print("RESAMPLING. NEFF=", neff)
         # perform multinomial resampling
         cumsum = np.cumsum(weights)
         cumsum[-1] = 1. # avoid roundoff error
@@ -341,18 +325,45 @@ def resample(particles):
             new_particles[i].x = particles[i].x
             new_particles[i].y = particles[i].y
             new_particles[i].theta = particles[i].theta
-            # set the new weights of the particle
-            new_particles[i].w = particles[i].w
 
-            # new_particles[i].w = 1.0 / NUM_PARTICLES # TODO: Dunno if we have to change this
+            new_particles[i].w = 1.0 / NUM_PARTICLES
 
         return new_particles
 
+    print("NO RESAMPLING. NEFF=", neff)
     return particles
 
 def get_estimate(particles):
-    max_particle = particles[0]
-    for particle in particles:
-        if particle.w > max_particle.w:
-            max_particle = particle
-    return max_particle
+    # get list of all particle pose
+    particle_x = list()
+    particle_y = list()
+    particle_w = list()
+    for n in range(NUM_PARTICLES):
+        particle_x.append(particles[n].x)
+        particle_y.append(particles[n].y)
+        particle_w.append(particles[n].w)
+
+    # get mean and std of list
+    x_mean = np.mean(particle_x)
+    x_var = math.pow(np.std(particle_x), 2)
+    y_mean = np.mean(particle_y)
+    y_var = math.pow(np.std(particle_y), 2)
+
+    # create mean vector and covariance matrix
+    pos_mean = np.array([x_mean, y_mean])
+    pos_cov = np.zeros(shape=(2,2), dtype=np.float64)
+    pos_cov[0,0] = x_var
+    pos_cov[1,1] = y_var
+
+    # compute estimate
+    prediction = np.random.normal(loc=pos_mean, scale=[x_var, y_var])
+
+    # ingore the above code and just do max weight
+    idx = particle_w.index(max(particle_w))
+    prediction = [particles[idx].x, particles[idx].y]
+
+    # reset all weight vals
+    for i in range(NUM_PARTICLES):
+        particles[i].w = 1.0 / NUM_PARTICLES
+
+    return prediction

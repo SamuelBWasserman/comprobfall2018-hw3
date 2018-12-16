@@ -56,17 +56,25 @@ if __name__ == '__main__':
 
     # Loop over every control
     state = start_position
+
+    # Get bounds of world
+    min_x = corners[2][0]
+    max_x = corners[0][0]
+    min_y = corners[2][1]
+    max_y = corners[0][1]
+
+    #particles = create_uniform_particles([min_x, max_x], [min_y, max_y], [-1 * math.pi, math.pi])
+    particles = create_initial_particles(start_position[0], start_position[1], [-1 * math.pi, math.pi])
+
     for i in range(len(noisy_heading_distance_list)):
         control = heading_distance_list[i]
         observation_scan = scan_list[i]
 
         # Run particle filter to get estimated pose
-        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*math.pi, math.pi))
-
-        particles = run_filter(particles, noisy_heading_distance_list[i], flat_scan_list[i], obstacles, 0.1)
+        particles = run_filter(particles, noisy_heading_distance_list[i], flat_scan_list[i], obstacles, 0.1, corners)
 
         estimate = get_estimate(particles)
-        estimated_pnt = (estimate.x, estimate.y)
+        estimated_pnt = (estimate[0], estimate[1])
         estimated_positions.append(estimated_pnt)
 
     # Graph result against ground truth
