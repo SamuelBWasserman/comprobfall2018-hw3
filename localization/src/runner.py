@@ -43,7 +43,6 @@ if __name__ == '__main__':
     for obstacle in obstacles:
         for point in obstacle:
             obs.append(point)
-
     # Convert the Float32's in the trajectory lists to float to make the algorithm more readable
     for j in range(len(noisy_heading_distance_list)):
         noisy_heading_distance_list[j] = [float(noisy_heading_distance_list[j][0].data), float(noisy_heading_distance_list[j][1].data)]
@@ -55,7 +54,6 @@ if __name__ == '__main__':
             new_scan_list.append(float(scan.data))
         flat_scan_list.append(new_scan_list)
 
-    print find_line((1,1), (4,4))
     # Loop over every control
     state = start_position
     for i in range(len(noisy_heading_distance_list)):
@@ -63,7 +61,7 @@ if __name__ == '__main__':
         observation_scan = scan_list[i]
 
         # Run particle filter to get estimated pose
-        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*np.pi, np.pi))
+        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*math.pi, math.pi))
 
         particles = run_filter(particles, noisy_heading_distance_list[i], flat_scan_list[i], obstacles, 0.1)
 

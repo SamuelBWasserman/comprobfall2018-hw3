@@ -5,7 +5,7 @@ import math
 import random
 import copy
 
-NUM_PARTICLES = 500  # number of particles to sample
+NUM_PARTICLES = 100  # number of particles to sample
 OBS_SIZE = 2  # dimentionality of the obstacles(2D in this case)
 STATE_SIZE = 3
 SAMPLE_THRESHOLD = NUM_PARTICLES / 1.5
@@ -41,8 +41,11 @@ def create_uniform_particles(x_range, y_range, theta_range):
     # create a list of particles
     particles = list()
     for n in range(NUM_PARTICLES):
-        particles.append(Particle(particles_x[n], particles_y[n], particles_theta[n]))
-
+        particle = Particle(particles_x[n], particles_y[n], particles_theta[n])
+        particle.x = particles_x[n]
+        particle.y = particles_y[n]
+        particle.theta = particles_theta[n]
+        particles.append(particle)
     return particles
 
 def create_initial_particles(x_coord, y_coord, theta_range):
@@ -170,7 +173,7 @@ def observation_update(particles, z, obs, noise, def_nan_val=10.0):
     for iz in range(NUM_PARTICLES):
         # compute each particle's estimated z_t
         est_obs = compute_obs(particles[iz], obs, noise)
-
+        print est_obs
         # remove 'nan'
         for i in range(len(est_obs)):
             if est_obs[i] == 'nan':
@@ -225,35 +228,62 @@ def compute_obs(particle, obs, scan_noise):
         for corner in obstacle_iter:
             obstacle_sides.append(find_line(prev_corner, corner))
             prev_corner = corner
-
     # Loop through the scan range for a given particle at it's pose
     position = particle.theta - (math.radians(30))
-
     for i in range(54):
-        # init spot in list
-        particle_scan_list[i] = 0
-
         # Find line between the two points in the scan 10 distance units away
         r = math.sqrt(1 + position**2)
         scan_pnt1 = [particle.x, particle.y]
         scan_pnt2 = [particle.x + 10/r, particle.y + (10 * position) / r]
         scan_line = find_line(scan_pnt1, scan_pnt2)
-        # loop through each side in every obstacle
-        for side in obstacle_sides:
-            # Loop through each pair of points (scan line point -> obstacle side point)
-            for point in scan_line:
+        min_side_dist = 999
+        for scan_point in scan_line:
+            for side in obstacle_sides:
                 for side_point in side:
-                    # If the point on the scan is equal to the point on the side with some error,
-                    # add distance from original point in scan to point on side to distance list
-                    if abs(point[0] - side_point[0]) < 0.25 and abs(point[1] - side_point[1]) < 0.25:
-                        particle_scan_list[i] = math.hypot(side_point[0] - scan_line[0][0], side_point[1] - scan_line[0][1]) + np.random.normal(0, scan_noise)
-                        break
-                if particle_scan_list[i] is not 'nan':
-                    break
-        if particle_scan_list[i] == 0:
+                    # if a point on the scan line intersects a point on an obstacle side
+                    if distance(scan_point, side_point) < 0.3:
+                        # Distance from particle to side
+                        dist = distance(scan_pnt1, side_point)
+                        if dist < min_side_dist and dist < 10:
+                            min_side_dist = dist
+        if min_side_dist > 10:
             particle_scan_list[i] = 'nan'
+        else:
+            particle_scan_list[i] = min_side_dist
         position = position + math.radians(1.125)
+
     return particle_scan_list
+
+
+def distance(pt1, pt2):
+    return math.sqrt((pt1[0] - pt2[0])**2 + (pt1[1] - pt2[1])**2)
+
+
+def find_scan_line(pt, theta):
+    (rise, run) = float.as_integer_ratio(math.tan(theta))
+    slope = float(rise) / float(run)
+    (x_slope, y_slope) = float.as_integer_ratio(slope)
+    x_slope = x_slope / float(10)
+    y_slope = y_slope / float(10)
+
+    if slope < 0:
+        x = pt[0] - 10 * math.sqrt((1 / (1 + slope**2)))
+        y = pt[0] - slope * 10 * math.sqrt(1 / (1 + slope**2))
+    else:
+        x = pt[0] + 10 * math.sqrt((1 / (1 + slope ** 2)))
+        y = pt[0] + slope * 10 * math.sqrt(1 / (1 + slope ** 2))
+    return find_line(pt, [x, y])
+
+def y_at_x_in_line(point, slope, x):
+    """
+    Uses point slope formula of line to return the y value at a given x value
+    :param point:
+    :param slope:
+    :param x:
+    :return:
+    """
+    y = slope*(x - point[0]) + point[0]
+    return y
 
 
 def find_line(pnt1, pnt2):
@@ -267,11 +297,12 @@ def find_line(pnt1, pnt2):
     y_slope = float((pnt2[1] - pnt1[1]) / float(10))
     line = list()
     # Loop from point to point adding values to the coordinate list
-    while abs(pnt2[0] - current_point[0]) > 0.5 and abs(pnt2[1] - current_point[1]) > 0.5:
+    while abs(pnt2[0] - current_point[0]) > 0.01 or abs(pnt2[1] - current_point[1]) > 0.01:
         new_pnt = [current_point[0], current_point[1]]
         line.append(new_pnt)
         current_point[0] += x_slope
         current_point[1] += y_slope
+
     # append last pnt
     line.append(current_point)
     return line
