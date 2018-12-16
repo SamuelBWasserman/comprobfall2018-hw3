@@ -1,10 +1,11 @@
 import numpy as np
 import scipy
+import scipy.stats
 import math
 import random
 import copy
 
-NUM_PARTICLES = 100  # number of particles to sample
+NUM_PARTICLES = 500  # number of particles to sample
 OBS_SIZE = 2  # dimentionality of the obstacles(2D in this case)
 STATE_SIZE = 3
 SAMPLE_THRESHOLD = NUM_PARTICLES / 1.5
@@ -139,7 +140,7 @@ def motion_model(xp, u):
     return xp
 
 
-def observation_update(particles, z, obs, noise, def_nan_val=100):
+def observation_update(particles, z, obs, noise, def_nan_val=10.0):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
@@ -158,12 +159,12 @@ def observation_update(particles, z, obs, noise, def_nan_val=100):
 
     # deal with 'nan' values in the actual z
     for i in range(len(z)):
-        if z[i] == 'nan':
+        if str(z[i]) == 'nan':
             z[i] = def_nan_val
 
     # create the noise covariance matrix
     Q = np.zeros((len(z), len(z)))
-    np.fill_diagonal(Q, noise)
+    np.fill_diagonal(Q, math.pow(noise, 2))
 
     # loop through all observation values
     for iz in range(NUM_PARTICLES):
@@ -175,9 +176,12 @@ def observation_update(particles, z, obs, noise, def_nan_val=100):
             if est_obs[i] == 'nan':
                 est_obs[i] = def_nan_val
 
+        est_obs = np.array(est_obs)
+
         # build a distribution where z_t is the mean and the std is the std is the scan noise parameter
         # then calulcate probability of the particle's z_t on the distribution
         weight = scipy.stats.multivariate_normal.pdf(est_obs, mean=z, cov=Q)
+
 
         eta += weight
 
@@ -187,6 +191,14 @@ def observation_update(particles, z, obs, noise, def_nan_val=100):
     # normalize all particle weights
     for n in range(NUM_PARTICLES):
         particles[n].w = particles[n].w / eta
+
+    # sanity check for normalization
+    w = 0
+    for n in range(NUM_PARTICLES):
+        w += particles[n].w
+
+    if w != 1.0:
+        raise Exception("Weight w does not sum to one! The sum of the weights is:", w)
         
     return particles
 
@@ -201,6 +213,8 @@ def compute_obs(particle, obs, scan_noise):
         z_hat: An estimate of the particle's z_t
     """
     particle_scan_list = list()
+    for i in range(54):
+        particle_scan_list.append(0)
     obstacle_sides = list()
     for obstacle in obs:
         obstacle_iter = iter(obstacle)
@@ -210,9 +224,11 @@ def compute_obs(particle, obs, scan_noise):
         # Loop through corners and build lines for each side of the polygonal obstacle
         for corner in obstacle_iter:
             obstacle_sides.append(find_line(prev_corner, corner))
+            prev_corner = corner
 
     # Loop through the scan range for a given particle at it's pose
     position = particle.theta - (math.radians(30))
+
     for i in range(54):
         # init spot in list
         particle_scan_list[i] = 0
@@ -222,7 +238,6 @@ def compute_obs(particle, obs, scan_noise):
         scan_pnt1 = [particle.x, particle.y]
         scan_pnt2 = [particle.x + 10/r, particle.y + (10 * position) / r]
         scan_line = find_line(scan_pnt1, scan_pnt2)
-
         # loop through each side in every obstacle
         for side in obstacle_sides:
             # Loop through each pair of points (scan line point -> obstacle side point)
@@ -238,7 +253,6 @@ def compute_obs(particle, obs, scan_noise):
         if particle_scan_list[i] == 0:
             particle_scan_list[i] = 'nan'
         position = position + math.radians(1.125)
-
     return particle_scan_list
 
 
@@ -248,23 +262,18 @@ def find_line(pnt1, pnt2):
     :param pnt2:
     :return: list of points between two points
     """
-    x_min = min(pnt1[0], pnt2[0])
-    if x_min == pnt1[0]:
-        current_point = [pnt1[0], pnt1[1]]
-    else:
-        current_point = [pnt2[0], pnt2[1]]
-    x_max = max(pnt1[0], pnt2[0])
-    y_min = min(pnt1[1], pnt2[1])
-    y_max = max(pnt1[1], pnt2[1])
-
-    x_slope = (x_max - x_min) / 20
-    y_slope = (y_max - y_min) / 20
+    current_point = [pnt1[0], pnt1[1]]
+    x_slope = float((pnt2[0] - pnt1[0]) / float(10))
+    y_slope = float((pnt2[1] - pnt1[1]) / float(10))
     line = list()
     # Loop from point to point adding values to the coordinate list
-    while current_point[0] < x_max:
-        line.append(current_point)
+    while abs(pnt2[0] - current_point[0]) > 0.5 and abs(pnt2[1] - current_point[1]) > 0.5:
+        new_pnt = [current_point[0], current_point[1]]
+        line.append(new_pnt)
         current_point[0] += x_slope
         current_point[1] += y_slope
+    # append last pnt
+    line.append(current_point)
     return line
 
 
@@ -273,7 +282,7 @@ def resample(particles):
     Args:
         particles: A list of particles
     Returns:
-        new_particles: A new list of particles
+        new_particles or particles: A new list of particles if we resample otherwise the old list
     """
     # store all particle weights in a list
     weights = list()
@@ -284,7 +293,7 @@ def resample(particles):
     # calculate effective sample size
     neff = 0
     for w in weights:
-        neff += math.pow(weights[w], 2)
+        neff += math.pow(w, 2)
     neff = 1.0 / neff
 
     # resample only if below some sample threshold
@@ -306,4 +315,13 @@ def resample(particles):
 
             # new_particles[i].w = 1.0 / NUM_PARTICLES # TODO: Dunno if we have to change this
 
-    return new_particles
+        return new_particles
+
+    return particles
+
+def get_estimate(particles):
+    max_particle = particles[0]
+    for particle in particles:
+        if particle.w > max_particle.w:
+            max_particle = particle
+    return max_particle

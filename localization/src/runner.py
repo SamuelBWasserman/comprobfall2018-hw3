@@ -31,14 +31,6 @@ def graph(data, output):
 
     return
 
-def create_uniform_particles(x_range, y_range, heading_range, n):
-    particles = np.empty((n, 3))
-    particles[:, 0] = uniform(x_range[0], x_range[1], size=n)
-    particles[:, 1] = uniform(y_range[0], y_range[1], size=n)
-    particles[:, 2] = uniform(heading_range[0], heading_range[1], size=n)
-    particles[:,2] %= 2 * np.pi
-    return particles
-
 
 if __name__ == '__main__':
     print "Running"
@@ -46,7 +38,6 @@ if __name__ == '__main__':
     start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_1.txt")
     corners, obstacles, num_obstacles = map_parser.parse_map("map_1.txt")
     estimated_positions = list()
-    print obstacles[0][0][0]
     # Create array of obstacles
     obs = []
     for obstacle in obstacles:
@@ -57,10 +48,14 @@ if __name__ == '__main__':
     for j in range(len(noisy_heading_distance_list)):
         noisy_heading_distance_list[j] = [float(noisy_heading_distance_list[j][0].data), float(noisy_heading_distance_list[j][1].data)]
 
+    flat_scan_list = list()
     for k in range(len(scan_list)):
+        new_scan_list = list()
         for scan in scan_list[k]:
-            scan = float(scan.data)
+            new_scan_list.append(float(scan.data))
+        flat_scan_list.append(new_scan_list)
 
+    print find_line((1,1), (4,4))
     # Loop over every control
     state = start_position
     for i in range(len(noisy_heading_distance_list)):
@@ -68,9 +63,13 @@ if __name__ == '__main__':
         observation_scan = scan_list[i]
 
         # Run particle filter to get estimated pose
-        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*np.pi, np.pi), num_obstacles)
+        particles = create_uniform_particles((-10, 10), (-10, 10), (-1*np.pi, np.pi))
 
-        run_filter(particles, noisy_heading_distance_list, scan_list, obstacles)
+        particles = run_filter(particles, noisy_heading_distance_list[i], flat_scan_list[i], obstacles, 0.1)
+
+        estimate = get_estimate(particles)
+        estimated_pnt = (estimate.x, estimate.y)
+        estimated_positions.append(estimated_pnt)
 
     # Graph result against ground truth
     graph(ground_truth_list, estimated_positions)

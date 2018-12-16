@@ -159,3 +159,4 @@ def estimate(particles, weights):
     mean = np.average(pos, weights=weights, axis=0)
     var = np.average((pos-mean)**2, weights=weights, axis=0)
     return mean, var
+
