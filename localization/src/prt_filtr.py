@@ -375,11 +375,6 @@ def get_max_prob_estimate(particles):
         weights.append(particles[n].w)
         robot_states.append([particles[n].x, particles[n].y])
 
-    idx = weights.index(max(weights))
-
     sidx = np.random.choice(range(len(robot_states)), p=weights)
-
-    #for n in range(NUM_PARTICLES):
-        #print("WEIGHTS", particles[n].w, particles[n].x, particles[n].y)
 
     return [particles[sidx].x, particles[sidx].y]

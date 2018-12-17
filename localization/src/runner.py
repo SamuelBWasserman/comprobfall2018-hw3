@@ -41,12 +41,8 @@ def test_motion_model(start_pos, gt_controls):
     print("INITIAL POS:", pos)
     for i in range(len(gt_controls)):
         controls = gt_controls[i]
-        print controls
-        #controls.append(float(gt_controls[i][0].data))
-        #controls.append(float(gt_controls[i][1].data))
         next_pos = motion_model(pos, np.asarray(controls, dtype=np.float64))
         plist.append([next_pos[0,0], next_pos[1,0]])
-        print("POS[", i, "]", next_pos)
         pos = next_pos
     return plist
 
@@ -90,7 +86,6 @@ if __name__ == '__main__':
     #particles = create_uniform_particles([min_x, max_x], [min_y, max_y], [-1 * math.pi, math.pi])
     particles = create_initial_particles(start_position[0], start_position[1], [-1 * math.pi, math.pi])
     for i in range(len(noisy_heading_distance_list)):
-        #break
         control = heading_distance_list[i]
         observation_scan = scan_list[i]
 
@@ -104,8 +99,6 @@ if __name__ == '__main__':
     #estimate_list_gt = test_motion_model(start_position, heading_distance_list)
 
     # Graph result against ground truth
-    #print(estimated_positions[0])
     print estimated_positions
     graph(ground_truth_list, estimated_positions)
-    #graph(ground_truth_list, estimate_list_gt)
 
