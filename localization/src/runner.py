@@ -31,12 +31,33 @@ def graph(data, output):
 
     return
 
+def test_motion_model(start_pos, gt_controls):
+    pos = np.zeros((3,1))
+    pos[0,0] = start_pos[0]
+    pos[1,0] = start_pos[1]
+    pos[2,0] = 0.0
+    pos.astype(np.float64)
+    print(pos)
+    plist = list()
+    plist.append(pos)
+    print("INITIAL POS:", pos)
+    for i in range(len(gt_controls)):
+        controls = gt_controls[i]
+        print controls
+        #controls.append(float(gt_controls[i][0].data))
+        #controls.append(float(gt_controls[i][1].data))
+        next_pos = motion_model(pos, np.asarray(controls, dtype=np.float64))
+        plist.append([next_pos[0,0], next_pos[1,0]])
+        print("POS[", i, "]", next_pos)
+        pos = next_pos
+    return plist
+
 
 if __name__ == '__main__':
     print "Running"
     # Extract relevant information from map and trajectory files
-    start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_1.txt")
-    corners, obstacles, num_obstacles = map_parser.parse_map("map_1.txt")
+    start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_2.txt")
+    corners, obstacles, num_obstacles = map_parser.parse_map("map_2.txt")
     estimated_positions = list()
     # Create array of obstacles
     obs = []
@@ -46,6 +67,11 @@ if __name__ == '__main__':
     # Convert the Float32's in the trajectory lists to float to make the algorithm more readable
     for j in range(len(noisy_heading_distance_list)):
         noisy_heading_distance_list[j] = [float(noisy_heading_distance_list[j][0].data), float(noisy_heading_distance_list[j][1].data)]
+
+    # Convert the Float32's in the trajectory lists to float to make the algorithm more readable
+    for j in range(len(heading_distance_list)):
+        heading_distance_list[j] = [float(heading_distance_list[j][0].data),
+                                          float(heading_distance_list[j][1].data)]
 
     flat_scan_list = list()
     for k in range(len(scan_list)):
@@ -65,18 +91,23 @@ if __name__ == '__main__':
 
     #particles = create_uniform_particles([min_x, max_x], [min_y, max_y], [-1 * math.pi, math.pi])
     particles = create_initial_particles(start_position[0], start_position[1], [-1 * math.pi, math.pi])
-
     for i in range(len(noisy_heading_distance_list)):
+        #break
         control = heading_distance_list[i]
         observation_scan = scan_list[i]
 
         # Run particle filter to get estimated pose
         particles = run_filter(particles, noisy_heading_distance_list[i], flat_scan_list[i], obstacles, 0.1, corners)
 
-        estimate = get_estimate(particles)
+        estimate = get_max_prob_estimate(particles)
         estimated_pnt = (estimate[0], estimate[1])
         estimated_positions.append(estimated_pnt)
 
+    #estimate_list_gt = test_motion_model(start_position, heading_distance_list)
+
     # Graph result against ground truth
+    #print(estimated_positions[0])
+    print estimated_positions
     graph(ground_truth_list, estimated_positions)
+    #graph(ground_truth_list, estimate_list_gt)
 

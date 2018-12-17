@@ -5,10 +5,10 @@ import math
 import random
 import copy
 
-NUM_PARTICLES = 500  # number of particles to sample
+NUM_PARTICLES = 100  # number of particles to sample
 OBS_SIZE = 2  # dimentionality of the obstacles(2D in this case)
 STATE_SIZE = 3
-SAMPLE_THRESHOLD = NUM_PARTICLES / 2.0
+SAMPLE_THRESHOLD = NUM_PARTICLES / 1.5
 
 
 class Particle:
@@ -58,9 +58,10 @@ def create_initial_particles(x_coord, y_coord, theta_range):
         particles: A list of particles
     """
     # create a list of initial random guesses for particle location
-    particles_x = np.full((NUM_PARTICLES,), fill_value=x_coord*np.random.uniform(), dtype=np.float64)
-    particles_y = np.full((NUM_PARTICLES,), fill_value=y_coord*np.random.uniform(), dtype=np.float64)
-    particles_theta = np.random.uniform(theta_range[0], theta_range[1], size=NUM_PARTICLES)
+    particles_x = np.full((NUM_PARTICLES,), fill_value=x_coord + np.random.normal(0, 0.001), dtype=np.float64)
+    particles_y = np.full((NUM_PARTICLES,), fill_value=y_coord + np.random.normal(0, 0.001), dtype=np.float64)
+    particles_theta = np.full((NUM_PARTICLES,), fill_value=0.0 , dtype=np.float64)
+
 
     # create a list of particles
     particles = list()
@@ -93,9 +94,6 @@ def run_filter(particles, u, z, obs, scan_noise, world_corners):
 
     # perform resampling update
     particles = resample(particles)
-
-    # TODO: Maybe add an estimate function that computes an estimate of the particle's pose
-
 
     return particles
 
@@ -136,7 +134,7 @@ def motion_model(xp, u):
     """
 
     # get new theta value because we rotate first
-    xp[2, 0] = xp[2, 0] + u[0]
+    xp[2, 0] = u[0]
 
     # get new x coordinate
     xp[0, 0] = xp[0, 0] + u[1] * math.cos(xp[2, 0])
@@ -147,7 +145,7 @@ def motion_model(xp, u):
     return xp
 
 
-def observation_update(particles, z, obs, noise, corners, def_nan_val=10.0):
+def observation_update(particles, z, obs, noise, corners, def_nan_val=0.00):
     """ Performs the observation update given a list of observations
     Args:
         particles: A list of particles of size NUM_PARTICLES
@@ -167,26 +165,23 @@ def observation_update(particles, z, obs, noise, corners, def_nan_val=10.0):
     # deal with 'nan' values in the actual z
     for i in range(len(z)):
         if str(z[i]) == 'nan':
-            z[i] = def_nan_val
-
-    # create the noise covariance matrix
-    Q = np.zeros((len(z), len(z)))
-    np.fill_diagonal(Q, math.pow(noise, 2))
+            z[i] = np.random.normal(def_nan_val, noise)
 
     # loop through all observation values
     for iz in range(NUM_PARTICLES):
         # compute each particle's estimated z_t
         est_obs = compute_new_obs(particles[iz], obs, noise, corners)
-
         est_obs = np.array(est_obs)
+
+        for i in range(len(est_obs)):
+            if str(est_obs[i]) == 'nan':
+                est_obs[i] = np.random.normal(def_nan_val, noise)
 
         # build a distribution where z_t is the mean and the std is the std is the scan noise parameter
         # then calculate probability of the particle's z_t on the distribution
-        #weight = scipy.stats.multivariate_normal.pdf(est_obs, mean=z, cov=Q)
-        weight = scipy.stats.norm.pdf(est_obs, loc=z, scale=54*[noise])
-        #print(sum(weight))
-        weight = np.average(weight)
-        #print("WIEGHT",weight)
+        weight = scipy.stats.norm.pdf(est_obs, loc=est_obs, scale=54*[noise])
+        weight = np.linalg.norm(weight)
+        weight = 1.0
 
         eta += weight
 
@@ -219,6 +214,13 @@ def compute_new_obs(particle, obs, scan_noise, corners):
                 break
             obs_edge_list.append([list(o[v]), list(o[v+1])])
 
+    # add world edges too
+    for i in range(len(corners)):
+        if i == len(corners)-1:
+            break
+        obs_edge_list.append([list(corners[i]), list(corners[i+1])])
+
+
     # set current angle and get distance estimates
     curr_pos = particle.theta - math.radians(30)
     scan_start = [particle.x, particle.y]
@@ -234,7 +236,7 @@ def compute_new_obs(particle, obs, scan_noise, corners):
 
 
             if type(inter_coord) != bool:
-                dist = distance(scan_start, inter_coord) #+ np.random.normal(0, math.pow(scan_noise, 2))
+                dist = distance(scan_start, inter_coord) #+ np.random.normal(0, scan_noise)
 
                 # set new min_scan_dist
                 if dist < min_scan_dist and dist > 0.45:
@@ -242,7 +244,7 @@ def compute_new_obs(particle, obs, scan_noise, corners):
 
 
         if min_scan_dist == 10.0:
-            particle_scan_list[i] = 10.0
+            particle_scan_list[i] = 'nan'
         else:
             particle_scan_list[i] = min_scan_dist
 
@@ -274,6 +276,7 @@ def does_intersect(line1, line2, bounds):
         max_x = bounds[0][0]
         min_y = bounds[2][1]
         max_y = bounds[0][1]
+        # discard inter points outside the world
         if inter[0] < min_x or inter[0] > max_x:
             inter = False
             return inter
@@ -345,9 +348,9 @@ def get_estimate(particles):
 
     # get mean and std of list
     x_mean = np.mean(particle_x)
-    x_var = math.pow(np.std(particle_x), 2)
+    x_var = np.std(particle_x)
     y_mean = np.mean(particle_y)
-    y_var = math.pow(np.std(particle_y), 2)
+    y_var = np.std(particle_y)
 
     # create mean vector and covariance matrix
     pos_mean = np.array([x_mean, y_mean])
@@ -358,12 +361,26 @@ def get_estimate(particles):
     # compute estimate
     prediction = np.random.normal(loc=pos_mean, scale=[x_var, y_var])
 
-    # ingore the above code and just do max weight
-    idx = particle_w.index(max(particle_w))
-    prediction = [particles[idx].x, particles[idx].y]
-
-    # reset all weight vals
-    for i in range(NUM_PARTICLES):
-        particles[i].w = 1.0 / NUM_PARTICLES
-
     return prediction
+
+def get_max_prob_estimate(particles):
+    """ Gets the state with highest probability
+    Args:
+        particles: A list of particles
+    Returns:
+        prediction: A prediction list.
+    """
+    weights = list()
+    robot_states = list()
+    for n in range(NUM_PARTICLES):
+        weights.append(particles[n].w)
+        robot_states.append([particles[n].x, particles[n].y])
+
+    idx = weights.index(max(weights))
+
+    sidx = np.random.choice(range(len(robot_states)), p=weights)
+
+    #for n in range(NUM_PARTICLES):
+        #print("WEIGHTS", particles[n].w, particles[n].x, particles[n].y)
+
+    return [particles[sidx].x, particles[sidx].y]

@@ -63,7 +63,7 @@ def parse_trajectory(input_file):
             ground_truth_list.append(model_state)
 
             # Append noisy headings and distances to their list
-            noisy_heading_distance_list.append([Float32(lines[reading_num + 27].split()[1].replace("[", "").replace(",", "")), Float32(lines[reading_num + 29].split()[1].replace("[","").replace(",",""))])
+            noisy_heading_distance_list.append([Float32(lines[reading_num + 25].split()[1].replace("[", "").replace(",", "")), Float32(lines[reading_num + 27].split()[1].replace("[","").replace(",",""))])
 
             # Append scan data to list
             scan_data = lines[reading_num + 29][11:].split()
