@@ -2,7 +2,6 @@ import numpy as np
 import scipy
 import scipy.stats
 import math
-import random
 import copy
 
 NUM_PARTICLES = 100  # number of particles to sample

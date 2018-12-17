@@ -3,8 +3,6 @@
 import matplotlib.pyplot as plt
 import trajectory_parser
 import map_parser
-import numpy as np
-from numpy.random import uniform
 from prt_filtr import *
 
 """Graph the ground truth data against the estimated positions of the turtlebot"""
@@ -56,8 +54,8 @@ def test_motion_model(start_pos, gt_controls):
 if __name__ == '__main__':
     print "Running"
     # Extract relevant information from map and trajectory files
-    start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_2.txt")
-    corners, obstacles, num_obstacles = map_parser.parse_map("map_2.txt")
+    start_position, heading_distance_list, ground_truth_list, noisy_heading_distance_list, scan_list = trajectory_parser.parse_trajectory("trajectories_5.txt")
+    corners, obstacles, num_obstacles = map_parser.parse_map("map_5.txt")
     estimated_positions = list()
     # Create array of obstacles
     obs = []
